@@ -37,29 +37,6 @@ print(symbol_info)
 symbol_price = mt.symbol_info_tick("BTCUSD")._asdict()
 print(symbol_price)
 
-int OnInit()
-{
-// EA initialization code
-return(INIT_SUCCEEDED);
-}
-
-void OnTick()
-{
-double rsi = iRSI(NULL, 0, RSI_Period, PRICE_CLOSE, 0); // Current RSI value
-
-// Buying condition
-if(rsi < OversoldLevel && OrdersTotal() == 0)
-    {
-        OrderSend(Symbol(), OP_BUY, LotSize, Ask, 3, 0, 0, "RSI Buy", 0, clrGreen);
-    }
-
-    // Selling condition
-    if(rsi > OverboughtLevel && OrdersTotal() == 0)
-        {
-            OrderSend(Symbol(), OP_SELL, LotSize, Bid, 3, 0, 0, "RSI Sell", 0, clrRed);
-        }
-    }
-
 # Sending Market Order Crossover Strategy *1
 def market_order(symbol, volume, order_type, deviation, magic, stoploss, takeprofit, **kwargs):
     tick = mt.symbol_info_tick(symbol)
