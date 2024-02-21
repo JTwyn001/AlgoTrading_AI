@@ -2,6 +2,7 @@ import pandas as pd
 import MetaTrader5 as mt
 import time
 import numpy as np
+import pandas_ta as ta
 from datetime import datetime, timedelta
 
 mt.initialize()
@@ -27,7 +28,7 @@ num_symbols = mt.symbols_total()
 print('num_symbols: ', num_symbols)
 
 symbols = mt.symbols_get()
-symbols
+print(symbols)
 
 symbol_info = mt.symbol_info("BTCUSD")._asdict()
 print(symbol_info)
@@ -67,6 +68,7 @@ def market_order(symbol, volume, order_type, deviation, magic, stoploss, takepro
 # Closing an order from the ticket ID
 def close_order(ticket):
     positions = mt.positions_get()
+    ticket_found = False
 
     for pos in positions:
         tick = mt.symbol_info_tick(pos.symbol)
@@ -94,141 +96,53 @@ def close_order(ticket):
         print(order_result)
         return order_result
 
-return 'Ticket does not exist'
+    if not ticket_found:
+        print('Ticket does not exist')
+        return 'Ticket does not exist'
 
 
 # function for symbol exposure
 def get_exposure(symbol):
     positions = mt.positions_get(symbol=symbol)
     if positions:
-        pos_df = pd.DataFrame(positions, columns=positions[0]._asdict().keys())
+        pos_df = pd.DataFrame(list(map(lambda x: x._asdict(), positions)))
         exposure = pos_df['volume'].sum()
-
         return exposure
+    return 0
 
 
 # --------------------------Start of signals--------------------------------------
 
-# function looking for trading signals (Bollinger Bands)
-def get_signal():
-    # bar data
-    bars = mt.copy_rates_from_pos(SYMBOL, TIMEFRAME, 1, SMA_PERIOD)
-    # bars = mt.copy_rates_from_pos(symbol, timeframe, 1, sma_period)
+def calculate_indicators_and_generate_signals(symbol, timeframe):
+    # Fetch historical data
+    rates = mt.copy_rates_from_pos(symbol, timeframe, 0,
+                                   70)  # Adjust last parameter to suit the requirement of your indicators
+    if rates is None or len(rates) < 100:
+        print("Not enough data to perform analysis")
+        return None, None, None
 
-    # Convert bars to DataFrame
-    df = pd.DataFrame(bars)
-
-    # Simple Moving Average
-    sma = df['close'].mean()
-
-    sd = df['close'].std()
-
-    lower_band = sma - STANDARD_DEVIATIONS * sd
-
-    upper_band = sma + STANDARD_DEVIATIONS * sd
-
-    last_close_price = df.iloc[-1]['close']
-
-    print(last_close_price, lower_band, upper_band)
-    # finding signals
-    bollsignal = 'flat'
-    if last_close_price < lower_band:
-        bollsignal = 'buy'
-    elif last_close_price > upper_band:
-        bollsignal = 'sell'
-
-    return sd, bollsignal
-
-
-# function looking for trading signals (Crossover)
-def cross_signal(symbol, timeframe, sma_period):
-    bars = mt.copy_rates_from_pos(symbol, timeframe, 1, sma_period)
-    df = pd.DataFrame(bars)
-
-    last_close = df.iloc[-1].close
-    sma = df.close.mean()
-
-    direction = 'flat'
-    if last_close > sma:
-        direction = 'buy'  # long
-    elif last_close < sma:
-        direction = 'sell'  # short
-
-    return last_close, sma, direction
-
-
-def find_crossover(symbol, timeframe, sma_periods):
-    # Assuming sma_periods is a tuple or list with two elements: (fast_sma_period, slow_sma_period)
-    fast_sma_period, slow_sma_period = sma_periods
-
-    # Copy the last 'slow_sma_period' + 1 bars to calculate the fast and slow SMAs
-    rates = mt.copy_rates_from_pos(symbol, timeframe, 0, slow_sma_period + 1)
-    if rates is None or len(rates) < slow_sma_period + 1:
-        return None, None  # Not enough data to calculate SMAs
-
-    # Convert the rates to a DataFrame
     df = pd.DataFrame(rates)
 
-    # Calculate the fast and slow SMAs
-    df['fast_sma'] = df['close'].rolling(fast_sma_period).mean()
-    df['slow_sma'] = df['close'].rolling(slow_sma_period).mean()
+    # Calculate indicators
+    bollinger = ta.bbands(df['close'], length=20, std=2)
+    rsi = ta.rsi(df['close'], length=14)
+    sma_fast = ta.sma(df['close'], length=5)
+    sma_slow = ta.sma(df['close'], length=20)
 
-    # Check for crossover in the last two periods
-    last_fast_sma = df.iloc[-1]['fast_sma']
-    prev_fast_sma = df.iloc[-2]['fast_sma']
-    last_slow_sma = df.iloc[-1]['slow_sma']
-    prev_slow_sma = df.iloc[-2]['slow_sma']
+    # Get the latest values
+    latest_close = df['close'].iloc[-1]
+    lower_band = bollinger['BBL_20_2.0'].iloc[-1]
+    upper_band = bollinger['BBU_20_2.0'].iloc[-1]
+    latest_rsi = rsi.iloc[-1]
+    latest_fast_sma = sma_fast.iloc[-1]
+    latest_slow_sma = sma_slow.iloc[-1]
 
-    crossignal = 'flat'
-    # Detect bullish and bearish crossovers
-    if last_fast_sma > last_slow_sma and prev_fast_sma < prev_slow_sma:
-        crossignal = 'buy'
-    elif last_fast_sma < last_slow_sma and prev_fast_sma > prev_slow_sma:
-        crossignal = 'sell'
+    # Generate signals based on the latest indicator values
+    boll_signal = 'buy' if latest_close < lower_band else 'sell' if latest_close > upper_band else 'flat'
+    rsi_signal = 'buy' if latest_rsi < 30 else 'sell' if latest_rsi > 70 else 'flat'
+    sma_signal = 'buy' if latest_fast_sma > latest_slow_sma else 'sell' if latest_fast_sma < latest_slow_sma else 'flat'
 
-    return crossignal, last_fast_sma
-
-
-def calculate_rsi(symbol, timeframe, rsi_period=14):
-    """
-    Calculate the Relative Strength Index (RSI) for given data.
-
-    :param symbol: BTCUSD symbol
-    :param timeframe:
-    :param rsi_period: Period for RSI calculation
-    :return: DataFrame with an additional 'rsi' column
-    """
-    bars = mt.copy_rates_from_pos(symbol, timeframe, 0, rsi_period + 1)
-    if bars is None or len(bars) < rsi_period + 1:
-        return None
-
-    df = pd.DataFrame(bars)
-    delta = df['close'].diff()
-    gain = (delta.where(delta > 0, 0)).ewm(span=rsi_period, min_periods=rsi_period).mean()
-    loss = (-delta.where(delta < 0, 0)).ewm(span=rsi_period, min_periods=rsi_period).mean()
-
-    rs = gain / loss
-    df['rsi'] = 100 - (100 / (1 + rs))
-    return df
-
-
-def rsi_signal(data, overbought_level=70, oversold_level=30):
-    """
-    Generate RSI based buy/sell signals.
-
-    :param data: DataFrame with RSI values.
-    :param overbought_level: RSI level to indicate overbought conditions.
-    :param oversold_level: RSI level to indicate oversold conditions.
-    :return: Signal ('buy', 'sell', or 'flat')
-    """
-    latest_rsi = data['rsi'].iloc[-1]
-
-    if latest_rsi > overbought_level:
-        return 'sell'
-    elif latest_rsi < oversold_level:
-        return 'buy'
-    else:
-        return 'flat'
+    return boll_signal, rsi_signal, sma_signal
 
 
 # --------------------------End of signals--------------------------------------
@@ -241,36 +155,21 @@ if __name__ == '__main__':
     VOLUME = 1.0  # FLOAT
     DEVIATION = 5  # INTEGER
     MAGIC = 10
-    SMA_PERIOD = 10  # INTEGER
-    OVERBOUGHT = 70
-    OVERSOLD = 30
-    STANDARD_DEVIATIONS = 1  # number of Deviations for calculation of Bollinger Bands
     TP_SD = 2  # number of deviations for take profit
     SL_SD = 3  # number of deviations for stop loss
-    fsma_period = 5
-    ssma_period = 30
-
-    # connecting to mt5
-    mt.initialize()
-    if mt.initialize():
-        print('Connected to MetaTrader5')
 
     while True:
+        exposure = get_exposure(SYMBOL)
+        boll_signal, rsi_signal, sma_signal = calculate_indicators_and_generate_signals(SYMBOL, TIMEFRAME)
+
         # calculating account exposure
         #    if mt.positions_total() == 0:
-        exposure = get_exposure(SYMBOL)
+        boll_signal, lower_band, upper_band = bollinger_signal(symbol, timeframe)
+
         tick = mt.symbol_info_tick(SYMBOL)
-        sd, bollsignal = get_signal()
-        df = calculate_rsi(SYMBOL, TIMEFRAME)  # Fetch and calculate RSI for SYMBOL
-        if df is not None:  # checks that df is not null and the rsi value calculated is valid
-            rsisignal = rsi_signal(df)
-        # calculating last candle close and sma and checking trading signal
-        last_close, sma, direction = cross_signal(SYMBOL, TIMEFRAME, SMA_PERIOD)
-        crossignal, last_fast_sma = find_crossover(SYMBOL, TIMEFRAME, (fsma_period, ssma_period))
 
         # trading logic
-        # if direction == 'buy' and bollsignal == 'buy' and rsisignal == 'buy':
-        if rsisignal == 'buy':
+        if boll_signal == 'buy' and rsi_signal == 'buy' and sma_signal == 'buy':
             # if a BUY signal is detected, close all short orders
             for pos in mt.positions_get():
                 if pos.type == 1:  # pos.type == 1 means a sell order
@@ -280,8 +179,7 @@ if __name__ == '__main__':
                 market_order(SYMBOL, VOLUME, 'buy', DEVIATION, MAGIC, tick.bid - SL_SD * sd,
                              tick.bid + TP_SD * sd)
 
-        # elif direction == 'sell' and bollsignal == 'sell' and rsisignal == 'sell':
-        elif rsisignal == 'sell':
+        elif boll_signal == 'sell' and rsi_signal == 'sell' and sma_signal == 'sell':
             # if a SELL signal is detected, close all short orders
             for pos in mt.positions_get():
                 if pos.type == 0:  # pos.type == 0 means a buy order
@@ -291,17 +189,15 @@ if __name__ == '__main__':
                              tick.bid - TP_SD * sd)
 
         print('time: ', datetime.now())
-        print('exposure: ', exposure)
+        print('Exposure: ', exposure)
         print('last_close: ', last_close)
-        print('sma: ', sma)
-        print('crossover signal: ', direction)
-        print('Bollinger Signal: ', bollsignal)
-        print('SMA signal: ', crossignal)
-        print('RSI signal: ', rsisignal)
-        print('-------\n')
+        print('Bollinger Signal:', boll_signal)
+        print('RSI Signal:', rsi_signal)
+        print('SMA Signal:', sma_signal)
+        print('--------------------------------\n')
 
         # update ever 1s
-        time.sleep(1)
+        time.sleep(3)
 
 num_orders = mt.orders_total()
 num_orders
