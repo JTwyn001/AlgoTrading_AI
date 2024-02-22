@@ -1,20 +1,40 @@
-import pandas as pd
 import MetaTrader5 as mt
 import time
-import numpy as np
 import pandas_ta as ta
 from datetime import datetime, timedelta
+import numpy as np  # The Numpy numerical computing library
+import pandas as pd  # The Pandas data science library
+import requests  # The requests library for HTTP requests in Python
+import xlsxwriter  # The XlsxWriter library for
+import math  # The Python math module
+from scipy import stats  # The SciPy stats module
 
-mt.initialize()
-
-if mt.initialize():
+# Initialize and connect to MT5
+if not mt.initialize():
+    print("initialize() failed, error code =", mt.last_error())
+    quit()
+else:
     print('Connected to MetaTrader5')
 
 login = 51439669
 password = 'et8eMdvJ'
 server = 'ICMarketsSC-Demo'
 
-mt.login(login, password, server)
+if not mt.login(login, password, server):
+    print("Login failed, error code =", mt.last_error())
+    mt.shutdown()
+    quit()
+
+sp500_symbols = pd.read_csv('sp_500_stocks.csv')
+
+for symbol in sp500_symbols['Ticker']:
+    try:
+        rates = mt.copy_rates_from_pos(symbol, mt.TIMEFRAME_D1, 0, 365)  # Last 365 days of daily data
+        df = pd.DataFrame(rates)
+        print(f"Data for {symbol} retrieved")
+    except Exception as e:
+        print(f"Could not retrieve data for {symbol}: {e}")
+
 
 account_info = mt.account_info()
 print(account_info)
@@ -159,12 +179,9 @@ if __name__ == '__main__':
     SL_SD = 3  # number of deviations for stop loss
 
     while True:
+        # calculating account exposure
         exposure = get_exposure(SYMBOL)
         boll_signal, rsi_signal, sma_signal = calculate_indicators_and_generate_signals(SYMBOL, TIMEFRAME)
-
-        # calculating account exposure
-        #    if mt.positions_total() == 0:
-        boll_signal, lower_band, upper_band = bollinger_signal(symbol, timeframe)
 
         tick = mt.symbol_info_tick(SYMBOL)
 
