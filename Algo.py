@@ -193,8 +193,8 @@ if __name__ == '__main__':
                     close_order(pos.ticket)
             # if there are no open positions, open a new long position
             if not mt.positions_total():
-                market_order(SYMBOL, VOLUME, 'buy', DEVIATION, MAGIC, tick.bid - SL_SD * sd,
-                             tick.bid + TP_SD * sd)
+                market_order(SYMBOL, VOLUME, 'buy', DEVIATION, MAGIC, tick.bid - SL_SD * df['close'].std(),
+                             tick.bid + TP_SD * df['close'].std())
 
         elif boll_signal == 'sell' and rsi_signal == 'sell' and sma_signal == 'sell':
             # if a SELL signal is detected, close all short orders
@@ -202,12 +202,11 @@ if __name__ == '__main__':
                 if pos.type == 0:  # pos.type == 0 means a buy order
                     close_order(pos.ticket)
             if not mt.positions_total():
-                market_order(SYMBOL, VOLUME, 'sell', DEVIATION, MAGIC, tick.bid + SL_SD * sd,
-                             tick.bid - TP_SD * sd)
+                market_order(SYMBOL, VOLUME, 'sell', DEVIATION, MAGIC, tick.bid + SL_SD * df['close'].std(),
+                             tick.bid - TP_SD * df['close'].std())
 
         print('time: ', datetime.now())
         print('Exposure: ', exposure)
-        print('last_close: ', last_close)
         print('Bollinger Signal:', boll_signal)
         print('RSI Signal:', rsi_signal)
         print('SMA Signal:', sma_signal)
